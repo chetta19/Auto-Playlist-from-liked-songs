@@ -10,6 +10,9 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using Newtonsoft.Json;
+using System.Runtime.CompilerServices;
+using System.Collections;
+using Swan;
 
 namespace AutoPlaylistFromLikeSongs;
 
@@ -62,24 +65,70 @@ public class Program
         {
             if (playlist.Tracks.Total > 0)
             {
-                Console.WriteLine($"Clearing and updating playlist - {playlist.Name}");
+                Console.WriteLine($"Clearing playlist - {playlist.Name}");
                 await spotify.Playlists.ReplaceItems(playlist.Id, new PlaylistReplaceItemsRequest(new List<string> { }));
             }
+            /*if(playlist.Tracks.Total == 0) //uncomment to "delete" a playlist
+            {
+                await spotify.Follow.UnfollowPlaylist(playlist.Id);
+            }*/
+
         }
+
+
 
         var playListAddItemCaches = new Dictionary<string, List<string>>();
 
+        var artistCaches = new Dictionary<string, FullArtist>();
+
+        var genrePlaylistsKeywords = new List<string>();
+        genrePlaylistsKeywords.Add("Metal");
+        genrePlaylistsKeywords.Add("Rock");
+        genrePlaylistsKeywords.Add("Pop");
+        genrePlaylistsKeywords.Add("Punk");
+        genrePlaylistsKeywords.Add("Quebecois");
+
+
         await foreach (var likedSong in spotify.Paginate(page))
         {
+            Console.WriteLine($"Processing {counter} - Songs {likedSong.Track.Name}");
+
             var likedPlaylistNamesToAddSongTo = new List<string>();
 
             likedPlaylistNamesToAddSongTo.Add($"{playlistPrefix}{likedSong.Track.Album.ReleaseDate.Substring(0, 3)}0s");
             likedPlaylistNamesToAddSongTo.Add($"{playlistPrefix}{me.DisplayName}");
             likedPlaylistNamesToAddSongTo.Add($"{playlistPrefix}{likedSong.Track.Album.ReleaseDate.Substring(0, 4)}");
 
-            if(likedSong.AddedAt >= DateTime.Now.Subtract(TimeSpan.FromDays(30)))
+            if (likedSong.AddedAt >= DateTime.Now.Subtract(TimeSpan.FromDays(30)))
             {
                 likedPlaylistNamesToAddSongTo.Add($"{playlistPrefix} Liked in last 30 days");
+            }
+
+            if (likedSong.AddedAt >= DateTime.Now.Subtract(TimeSpan.FromDays(90)))
+            {
+                likedPlaylistNamesToAddSongTo.Add($"{playlistPrefix} Liked in last 90 days");
+            }
+
+            if(!artistCaches.ContainsKey(likedSong.Track.Artists.First().Id))
+            {
+                Console.WriteLine($"Fetching genre for artist {likedSong.Track.Artists.First().Name}");
+                var artist = await spotify.Artists.Get(likedSong.Track.Artists.First().Id);
+                artistCaches.Add(artist.Id, artist);
+            }
+
+            foreach (var genre in artistCaches[likedSong.Track.Artists.First().Id].Genres)
+            {
+                foreach (var genrePlaylistsKeyword in genrePlaylistsKeywords)
+                {
+                    if (genre.ToUpper().Contains(genrePlaylistsKeyword.ToUpper()))
+                    {
+                        string genrePlaylistName = $"{playlistPrefix} {genrePlaylistsKeyword}";
+                        if(!likedPlaylistNamesToAddSongTo.Contains(genrePlaylistName))
+                        {
+                            likedPlaylistNamesToAddSongTo.Add(genrePlaylistName);
+                        }
+                    }
+                }
             }
 
             /*if (likedSong.AddedAt >= DateTime.Now.Subtract(TimeSpan.FromDays(365)))
@@ -115,11 +164,11 @@ public class Program
                     playListAddItemCaches[playlist.Id].Clear();
                 }
             }
-            Console.WriteLine($"Processing {counter} - Songs {likedSong.Track.Name}");
+
             counter++;
         }
 
-        foreach(var playListAddItemCache in playListAddItemCaches)
+        foreach (var playListAddItemCache in playListAddItemCaches)
         {
             Console.WriteLine($"Last pass Bulk adding - Playlist Id {playListAddItemCache.Key}");
             await spotify.Playlists.AddItems(playListAddItemCache.Key, new PlaylistAddItemsRequest(playListAddItemCache.Value));
@@ -130,9 +179,7 @@ public class Program
             Console.WriteLine($"Updating playlist description and setting it public {playlist.Name}");
             spotify.Playlists.ChangeDetails(playlist.Id, new PlaylistChangeDetailsRequest() { Public = true, Description = $"Updated on {DateTime.Now.ToString()}" });
         }
-
         Console.WriteLine("Done!");
-
     }
 
 
