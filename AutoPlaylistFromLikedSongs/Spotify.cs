@@ -11,5 +11,13 @@ namespace AutoPlaylistFromLikedSongs
         public string ClientId { get; set; } = string.Empty;
 
         public string ClientSecret { get; set; } = string.Empty;
+
+        public bool PlaylistByYear { get; set; } = true;
+
+        public bool PlaylistByGenre { get; set; } = true;
+
+        public bool PlaylistDiscoverAlbumOfLikedSongs { get; set; } = true;
+
+        public int PlaylistDiscoverAlbumOfLikedSongsMinimumAlbumYear { get; set; } = 0;
     }
 }
