@@ -16,8 +16,12 @@ namespace AutoPlaylistFromLikedSongs
 
         public bool PlaylistByGenre { get; set; } = true;
 
-        public bool PlaylistDiscoverAlbumOfLikedSongs { get; set; } = true;
+        public bool PlaylistByArtist { get; set; } = false;
+
+        public bool PlaylistDiscoverAlbumOfLikedSongs { get; set; } = false;
 
         public int PlaylistDiscoverAlbumOfLikedSongsMinimumAlbumYear { get; set; } = 0;
+
+        public int PlaylistByArtistMinimumLikedSongs { get; set; } = 0;
     }
 }
