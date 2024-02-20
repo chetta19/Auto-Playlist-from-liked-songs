@@ -29,7 +29,7 @@ public class Program
     private const string CredentialsPath = "credentials.json";
     private static EmbedIOAuthServer? _server;
     private static Spotify _settings;
-    private static IList<SimplePlaylist>? _playlists;
+    private static IList<FullPlaylist>? _playlists;
     private const string playlistPrefix = "Liked Songs - ";
     private static void Exiting() => Console.CursorVisible = true;
 
@@ -99,6 +99,7 @@ public class Program
 
         await foreach (var likedSong in spotify.Paginate(page))
         {
+            Thread.Sleep(50);
             Console.WriteLine($"Processing {counter} - Songs {likedSong.Track.Name}");
 
             likedTrackUri.Add(likedSong.Track.Uri);
@@ -172,11 +173,6 @@ public class Program
                 }
             }
 
-            /*if (likedSong.AddedAt >= DateTime.Now.Subtract(TimeSpan.FromDays(365)))
-            {
-                likedPlaylistNamesToAddSongTo.Add($"{playlistPrefix} Liked in last 12 months");
-            }*/
-
             foreach (var likedPlaylistName in likedPlaylistNamesToAddSongTo)
             {
                 if (_playlists.Where(pl => pl.Name == (likedPlaylistName)).Count() == 0)
@@ -246,7 +242,7 @@ public class Program
             if (artist.Value.Count >= _settings.PlaylistByArtistMinimumLikedSongs)
             {
                 string playlistToAddTo = $"{playlistPrefix} for artist - {fullArtist.Name}";
-                SimplePlaylist playlist = await CreateGetPlaylist(spotify, me, playlistToAddTo).ConfigureAwait(false);
+                FullPlaylist playlist = await CreateGetPlaylist(spotify, me, playlistToAddTo).ConfigureAwait(false);
 				await spotify.Playlists.AddItems(playlist.Id, new PlaylistAddItemsRequest(artist.Value));
 			}
 		}
@@ -264,7 +260,7 @@ public class Program
 
 			string playlistToAddTo = $"{playlistPrefix} Discover Rest of Album - {album.ReleaseDate.Substring(0, 4)}";
 
-			SimplePlaylist playlist = await CreateGetPlaylist(spotify, me, playlistToAddTo).ConfigureAwait(false);
+			FullPlaylist playlist = await CreateGetPlaylist(spotify, me, playlistToAddTo).ConfigureAwait(false);
 			// Initialize a list to store the track URIs for the playlist
 			var trackUris = new List<string>();
 
@@ -286,7 +282,7 @@ public class Program
 		}
 	}
 
-	private static async Task<SimplePlaylist> CreateGetPlaylist(SpotifyClient spotify, PrivateUser me, string playlistToAddTo)
+	private static async Task<FullPlaylist> CreateGetPlaylist(SpotifyClient spotify, PrivateUser me, string playlistToAddTo)
 	{
 		if (_playlists.Where(pl => pl.Name == (playlistToAddTo)).Count() == 0)
 		{
