@@ -180,7 +180,7 @@ public class Program
                 if (_playlists.Where(pl => pl.Name == (likedPlaylistName)).Count() == 0)
                 {
                     Console.WriteLine($"Creating new playlist {likedPlaylistName}");
-                    await spotify.Playlists.Create(me.Id, new PlaylistCreateRequest(likedPlaylistName)
+                    await spotify.Playlists.Create(new PlaylistCreateRequest(likedPlaylistName)
                     {
                         Public = false,
                     });
@@ -289,7 +289,7 @@ public class Program
 		if (_playlists!.Where(pl => pl.Name == (playlistToAddTo)).Count() == 0)
 		{
 			Console.WriteLine($"Creating new playlist {playlistToAddTo}");
-			await spotify.Playlists.Create(me.Id, new PlaylistCreateRequest(playlistToAddTo)
+			await spotify.Playlists.Create(new PlaylistCreateRequest(playlistToAddTo)
 			{
 				Public = false,
 			});
@@ -299,12 +299,12 @@ public class Program
 		return playlist;
 	}
 
-	private static async void AddSongToPlaylist(string userId, string trackUri, string playlistname,Dictionary<string, List<string>> playListAddItemCaches, SpotifyClient spotify)
+	private static async void AddSongToPlaylist(string trackUri, string playlistname,Dictionary<string, List<string>> playListAddItemCaches, SpotifyClient spotify)
     {
         if (_playlists!.Where(pl => pl.Name == (playlistname)).Count() == 0)
         {
             Console.WriteLine($"Creating new playlist {playlistname}");
-            await spotify.Playlists.Create(userId, new PlaylistCreateRequest(playlistname)
+            await spotify.Playlists.Create(new PlaylistCreateRequest(playlistname)
             {
                 Public = false,
             });
