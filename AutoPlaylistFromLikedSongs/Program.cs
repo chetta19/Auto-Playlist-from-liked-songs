@@ -335,7 +335,7 @@ public class Program
         var config = SpotifyClientConfig.CreateDefault();
         var tokenResponse = await new OAuthClient(config).RequestToken(
           new AuthorizationCodeTokenRequest(
-            _settings!.ClientId, _settings.ClientSecret, response.Code, new Uri("http://localhost:5000/callback")
+            _settings!.ClientId, _settings.ClientSecret, response.Code, new Uri("http://127.0.0.1:5000/callback")
           )
         );
 
@@ -352,7 +352,7 @@ public class Program
     {
 
         var (verifier, challenge) = PKCEUtil.GenerateCodes();
-        _server = new EmbedIOAuthServer(new Uri("http://localhost:5000/callback"), 5000);
+        _server = new EmbedIOAuthServer(new Uri("http://127.0.0.1:5000/callback"), 5000);
         await _server.Start();
         _server.AuthorizationCodeReceived += OnAuthorizationCodeReceived;
         _server.ErrorReceived += OnErrorReceived;
