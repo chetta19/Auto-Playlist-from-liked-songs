@@ -90,7 +90,7 @@ public class Program
                 }
                 else
                 {
-                    Console.WriteLine($"Ignored playlist - {playlist.Name}");
+                    Console.WriteLine($"Skipped playlist - {playlist.Name}");
                 }
                 await Task.Delay(DelayOperationsMS);
             }
@@ -102,17 +102,17 @@ public class Program
 
 
         //empting managed playlists
-        /*int playlistCounter = 0;
+        int playlistCounter = 0;
         foreach (var playlist in _playlists)
         {
             playlistCounter++;
             if (playlist.Items!.Total > 0)
             {
-                Console.WriteLine($"{playlistCounter/ _playlists.Count * 100}% - Clearing playlist - {playlist.Name}");
+                Console.WriteLine($"{float.Round(playlistCounter / (float)_playlists.Count * 100,0)}% - Clearing playlist - {playlist.Name}");
                 await spotify.Playlists.UpdatePlaylistItems(playlist.Id!, new PlaylistReorderItemsRequest(0,0));
                 await Task.Delay(DelayOperationsMS);
             }
-        }*/
+        }
 
         var playListAddItemCaches = new Dictionary<string, List<string>>();
 
@@ -133,11 +133,12 @@ public class Program
 
         var page = await spotify.Library.GetTracks(new LibraryTracksRequest() { Limit = 50, Offset = 0 });
         int counter = 0;
+        int totalLikedSongs = page.Total ?? 0;
 
         await foreach (var likedSong in spotify.Paginate(page))
         {
             await Task.Delay(DelayOperationsMS);
-            Console.WriteLine($"Processing {counter} - Songs {likedSong.Track.Name}");
+            Console.WriteLine($"Processing {counter}/{totalLikedSongs} - {float.Round(counter / (float)totalLikedSongs * 100,1)}% - Songs {likedSong.Track.Name}");
 
             likedTrackUri.Add(likedSong.Track.Uri);
 
@@ -170,16 +171,19 @@ public class Program
                     await Task.Delay(DelayOperationsMS);
                 }
 
-                foreach (var genre in artistCaches[likedSong.Track.Artists.First().Id].Genres)
+                if (artistCaches[likedSong.Track.Artists.First().Id].Genres != null)
                 {
-                    foreach (var genrePlaylistsKeyword in genrePlaylistsKeywords)
+                    foreach (var genre in artistCaches[likedSong.Track.Artists.First().Id].Genres)
                     {
-                        if (genre.ToUpper().Contains(genrePlaylistsKeyword.ToUpper()))
+                        foreach (var genrePlaylistsKeyword in genrePlaylistsKeywords)
                         {
-                            string genrePlaylistName = $"{playlistPrefix} {genrePlaylistsKeyword}";
-                            if (!likedPlaylistNamesToAddSongTo.Contains(genrePlaylistName))
+                            if (genre.ToUpper().Contains(genrePlaylistsKeyword.ToUpper()))
                             {
-                                likedPlaylistNamesToAddSongTo.Add(genrePlaylistName);
+                                string genrePlaylistName = $"{playlistPrefix} {genrePlaylistsKeyword}";
+                                if (!likedPlaylistNamesToAddSongTo.Contains(genrePlaylistName))
+                                {
+                                    likedPlaylistNamesToAddSongTo.Add(genrePlaylistName);
+                                }
                             }
                         }
                     }
@@ -264,6 +268,11 @@ public class Program
             Console.WriteLine($"Updating playlist description and setting it public {playlist.Name}");
             await spotify.Playlists.ChangeDetails(playlist.Id!, new PlaylistChangeDetailsRequest() { Public = true, Description = $"Updated on {DateTime.Now.ToString()} using https://github.com/chetta19/Auto-Playlist-from-liked-songs" });
         }
+
+        // Re-save the updated playlist cache to include any newly created playlists
+        Console.WriteLine("Updating local JSON cache with final playlist states...");
+        string finalJson = JsonConvert.SerializeObject(_playlists, Newtonsoft.Json.Formatting.Indented);
+        await File.WriteAllTextAsync(PlaylistsCachePath, finalJson);
 
         Console.WriteLine("Done!");
     }
