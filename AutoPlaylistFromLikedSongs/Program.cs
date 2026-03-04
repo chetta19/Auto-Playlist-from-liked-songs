@@ -102,17 +102,17 @@ public class Program
 
 
         //empting managed playlists
-        int playlistCounter = 0;
+        /*int playlistCounter = 0;
         foreach (var playlist in _playlists)
         {
             playlistCounter++;
             if (playlist.Items!.Total > 0)
             {
                 Console.WriteLine($"{float.Round(playlistCounter / (float)_playlists.Count * 100,0)}% - Clearing playlist - {playlist.Name}");
-                await spotify.Playlists.UpdatePlaylistItems(playlist.Id!, new PlaylistReorderItemsRequest(0,0));
+                await spotify.Playlists.UpdatePlaylistItems(playlist.Id!, new PlaylistReplaceItemsRequest(new List<string>()));
                 await Task.Delay(DelayOperationsMS);
             }
-        }
+        }*/
 
         var playListAddItemCaches = new Dictionary<string, List<string>>();
 
@@ -131,7 +131,7 @@ public class Program
         var likedAlbumUri = new List<string>();
         var likedTrackUri = new List<string>();
 
-        var page = await spotify.Library.GetTracks(new LibraryTracksRequest() { Limit = 50, Offset = 0 });
+        var page = await spotify.Library.GetTracks(new LibraryTracksRequest() { Limit = 40, Offset = 0 });
         int counter = 0;
         int totalLikedSongs = page.Total ?? 0;
 
@@ -224,6 +224,7 @@ public class Program
                     {
                         Public = false,
                     });
+                    await Task.Delay(DelayOperationsMS);
                     _playlists.Add(newPlaylist);
                 }
                 var playlist = _playlists.Where(pl => pl.Name == (likedPlaylistName)).First();
@@ -236,10 +237,11 @@ public class Program
                 {
                     playListAddItemCaches[playlist.Id!].Add(likedSong.Track.Uri);
                 }
-                if (playListAddItemCaches[playlist.Id!].Count >= 99)
+                if (playListAddItemCaches[playlist.Id!].Count >= 40)
                 {
                     Console.WriteLine($"Bulk adding - Playlist {likedPlaylistName}");
                     await spotify.Playlists.AddPlaylistItems(playlist.Id!, new PlaylistAddItemsRequest(playListAddItemCaches[playlist.Id!]));
+                    await Task.Delay(DelayOperationsMS);
                     playListAddItemCaches[playlist.Id!].Clear();
                 }
             }
@@ -250,6 +252,7 @@ public class Program
         {
             Console.WriteLine($"Last pass Bulk adding - Playlist Id {playListAddItemCache.Key}");
             await spotify.Playlists.AddPlaylistItems(playListAddItemCache.Key, new PlaylistAddItemsRequest(playListAddItemCache.Value));
+            await Task.Delay(DelayOperationsMS);
         }
 
         if (_settings!.PlaylistDiscoverAlbumOfLikedSongs)
@@ -267,6 +270,7 @@ public class Program
         {
             Console.WriteLine($"Updating playlist description and setting it public {playlist.Name}");
             await spotify.Playlists.ChangeDetails(playlist.Id!, new PlaylistChangeDetailsRequest() { Public = true, Description = $"Updated on {DateTime.Now.ToString()} using https://github.com/chetta19/Auto-Playlist-from-liked-songs" });
+            await Task.Delay(DelayOperationsMS);
         }
 
         // Re-save the updated playlist cache to include any newly created playlists
@@ -291,6 +295,7 @@ public class Program
                 string playlistToAddTo = $"{playlistPrefix} for artist - {fullArtist.Name}";
                 FullPlaylist playlist = await CreateGetPlaylist(spotify, me, playlistToAddTo).ConfigureAwait(false);
                 await spotify.Playlists.AddPlaylistItems(playlist.Id!, new PlaylistAddItemsRequest(artist.Value));
+                await Task.Delay(DelayOperationsMS);
             }
         }
     }
@@ -308,6 +313,7 @@ public class Program
             string playlistToAddTo = $"{playlistPrefix} Discover Rest of Album - {album.ReleaseDate.Substring(0, 4)}";
 
             FullPlaylist playlist = await CreateGetPlaylist(spotify, me, playlistToAddTo).ConfigureAwait(false);
+            await Task.Delay(DelayOperationsMS);
             // Initialize a list to store the track URIs for the playlist
             var trackUris = new List<string>();
 
@@ -325,6 +331,7 @@ public class Program
                 Console.WriteLine($"Bulk adding {trackUris.Count} songs from album {album.Name} to Playlist {playlistToAddTo}");
                 // Add the tracks to the playlist
                 await spotify.Playlists.AddPlaylistItems(playlist.Id!, new PlaylistAddItemsRequest(trackUris));
+                await Task.Delay(DelayOperationsMS);
             }
         }
     }
@@ -365,10 +372,11 @@ public class Program
         {
             playListAddItemCaches[playlist.Id!].Add(trackUri);
         }
-        if (playListAddItemCaches[playlist.Id!].Count >= 99)
+        if (playListAddItemCaches[playlist.Id!].Count >= 40)
         {
             Console.WriteLine($"Bulk adding - Playlist {playlistname}");
             await spotify.Playlists.AddPlaylistItems(playlist.Id!, new PlaylistAddItemsRequest(playListAddItemCaches[playlist.Id!]));
+            await Task.Delay(DelayOperationsMS);
             playListAddItemCaches[playlist.Id!].Clear();
         }
     }
