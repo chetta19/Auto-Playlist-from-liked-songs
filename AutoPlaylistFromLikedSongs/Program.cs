@@ -54,14 +54,21 @@ public class Program
         Console.Read();
         _server!.Dispose();
     }
-    private static async Task CreatePlayListFromLikeSongs(string accessToken)
+    private static async Task CreatePlayListFromLikeSongs(AuthorizationCodeTokenResponse tokenResponse)
     {
+        var authenticator = new AuthorizationCodeAuthenticator(
+            _settings!.ClientId!,
+            _settings.ClientSecret!,
+            tokenResponse
+        );
+
         //var paginator = new YourNamespace.DelayedPaginator(TimeSpan.FromMilliseconds(1500));
         var config = SpotifyClientConfig
-              .CreateDefault(accessToken)
-              .WithRetryHandler(new SimpleRetryHandler() { RetryAfter = TimeSpan.FromMilliseconds(DelayOperationsMS), RetryTimes = 10, TooManyRequestsConsumesARetry = true });
+              .CreateDefault()
+              .WithAuthenticator(authenticator)
+              .WithRetryHandler(new SimpleRetryHandler() { RetryAfter = TimeSpan.FromMilliseconds(DelayOperationsMS), RetryTimes = 10, TooManyRequestsConsumesARetry = true })
         //.WithDefaultPaginator(paginator);
-        //.WithHTTPLogger(new SimpleConsoleHTTPLogger());
+        .WithHTTPLogger(new SimpleConsoleHTTPLoggerLonger());
 
         var spotify = new SpotifyClient(config);
 
@@ -108,8 +115,8 @@ public class Program
             playlistCounter++;
             if (playlist.Items!.Total > 0)
             {
-                Console.WriteLine($"{float.Round(playlistCounter / (float)_playlists.Count * 100,0)}% - Clearing playlist - {playlist.Name}");
-                await spotify.Playlists.ReplacePlaylistItems (playlist.Id!, new PlaylistReplaceItemsRequest(new List<string>()));
+                Console.WriteLine($"{float.Round(playlistCounter / (float)_playlists.Count * 100, 0)}% - Clearing playlist - {playlist.Name}");
+                await spotify.Playlists.ReplacePlaylistItems(playlist.Id!, new PlaylistReplaceItemsRequest(new List<string>()));
                 await Task.Delay(DelayOperationsMS);
             }
         }
@@ -138,7 +145,7 @@ public class Program
         await foreach (var likedSong in spotify.Paginate(page))
         {
             await Task.Delay(DelayOperationsMS);
-            Console.WriteLine($"Processing {counter}/{totalLikedSongs} - {float.Round(counter / (float)totalLikedSongs * 100,1)}% - Songs {likedSong.Track.Name}");
+            Console.WriteLine($"Processing {counter}/{totalLikedSongs} - {float.Round(counter / (float)totalLikedSongs * 100, 1)}% - Songs {likedSong.Track.Name}");
 
             likedTrackUri.Add(likedSong.Track.Uri);
 
@@ -392,7 +399,7 @@ public class Program
           )
         );
 
-        await CreatePlayListFromLikeSongs(tokenResponse.AccessToken);
+        await CreatePlayListFromLikeSongs(tokenResponse);
     }
 
     private static async Task OnErrorReceived(object sender, string error, string? state)
