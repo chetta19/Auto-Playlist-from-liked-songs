@@ -102,17 +102,17 @@ public class Program
 
 
         //empting managed playlists
-        /*int playlistCounter = 0;
+        int playlistCounter = 0;
         foreach (var playlist in _playlists)
         {
             playlistCounter++;
             if (playlist.Items!.Total > 0)
             {
                 Console.WriteLine($"{float.Round(playlistCounter / (float)_playlists.Count * 100,0)}% - Clearing playlist - {playlist.Name}");
-                await spotify.Playlists.UpdatePlaylistItems(playlist.Id!, new PlaylistReplaceItemsRequest(new List<string>()));
+                await spotify.Playlists.ReplacePlaylistItems (playlist.Id!, new PlaylistReplaceItemsRequest(new List<string>()));
                 await Task.Delay(DelayOperationsMS);
             }
-        }*/
+        }
 
         var playListAddItemCaches = new Dictionary<string, List<string>>();
 
