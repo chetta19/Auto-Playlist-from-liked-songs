@@ -25,9 +25,11 @@ public class Program
         public required List<string> TrackUri { get; set; }
     }
 
-
-    private const string CredentialsPath = "credentials.json";
-    private const string PlaylistsCachePath = "playlists_cache.json";
+    private static readonly string DataDirectory = Path.Combine(AppContext.BaseDirectory, "data");
+    private static readonly string CredentialsPath = Path.Combine(DataDirectory, "credentials.json");
+    private static readonly string PlaylistsCachePath = Path.Combine(DataDirectory, "playlists_cache.json");
+    private static readonly string ProgressCachePath = Path.Combine(DataDirectory, "progress_cache.txt");
+    private static readonly string PlayListAddItemCachePath = Path.Combine(DataDirectory, "playlist_add_item_cache.json");
     private static EmbedIOAuthServer? _server;
     private static Spotify? _settings;
     private static IList<FullPlaylist>? playlists;
@@ -39,6 +41,11 @@ public class Program
 
     public static async Task Main()
     {
+        if (!Directory.Exists(DataDirectory))
+        {
+            Directory.CreateDirectory(DataDirectory);
+            Console.WriteLine($"Created data directory at: {DataDirectory}");
+        }
         IConfiguration appConfig = new ConfigurationBuilder()
                                                 .AddJsonFile("appsettings.json")
                                                 .Build();
@@ -75,11 +82,15 @@ public class Program
         var me = await spotify.UserProfile.Current();
         Console.WriteLine($"Welcome {me.DisplayName} ({me.Id}), you're authenticated!");
 
+        int savedOffset = await LoadOffsetFromFile(); ;
+
         playlists = new List<FullPlaylist>();
         await GetPlaylists(spotify).ConfigureAwait(false);
-        await EmptyPlaylists(spotify);
+        if (savedOffset == 0)
+            await EmptyPlaylists(spotify);
 
-        var playListAddItemCaches = new Dictionary<string, List<string>>();
+        var playListAddItemCaches = await LoadCache<Dictionary<string, List<string>>>(PlayListAddItemCachePath)
+                            ?? new Dictionary<string, List<string>>();
 
         var artistCaches = new Dictionary<string, FullArtist>();
         var artistLikedTrackUri = new Dictionary<string, List<string>>();
@@ -96,8 +107,9 @@ public class Program
         var likedAlbumUri = new List<string>();
         var likedTrackUri = new List<string>();
 
-        var page = await spotify.Library.GetTracks(new LibraryTracksRequest() { Limit = 40, Offset = 0 });
-        int counter = 0;
+
+        var page = await spotify.Library.GetTracks(new LibraryTracksRequest() { Limit = 40, Offset = savedOffset });
+        int counter = savedOffset;
         int totalLikedSongs = page.Total ?? 0;
 
         await foreach (var likedSong in spotify.Paginate(page))
@@ -212,6 +224,8 @@ public class Program
                 }
             }
             counter++;
+            await File.WriteAllTextAsync(ProgressCachePath, counter.ToString());
+            await SaveCache(PlayListAddItemCachePath, playListAddItemCaches);
         }
 
         foreach (var playListAddItemCache in playListAddItemCaches)
@@ -240,16 +254,49 @@ public class Program
         }
 
         await SaveLocalPlaylistCache();
+        if (File.Exists(ProgressCachePath)) File.Delete(ProgressCachePath);
+        if (File.Exists(PlayListAddItemCachePath)) File.Delete(PlayListAddItemCachePath);
 
         Console.WriteLine("Done!");
+    }
+
+    private static async Task<int> LoadOffsetFromFile()
+    {
+        int savedOffset = 0;
+        if (File.Exists(ProgressCachePath))
+        {
+            if (int.TryParse(await File.ReadAllTextAsync(ProgressCachePath), out int parsedOffset))
+            {
+                savedOffset = parsedOffset;
+                Console.WriteLine($"Found saved progress. Resuming from offset: {savedOffset}");
+            }
+        }
+
+        return savedOffset;
+    }
+
+
+    private static async Task<T?> LoadCache<T>(string path)
+    {
+        if (File.Exists(path))
+        {
+            string json = await File.ReadAllTextAsync(path);
+            return JsonConvert.DeserializeObject<T>(json);
+        }
+        return default;
+    }
+
+    private static async Task SaveCache<T>(string path, T data)
+    {
+        string json = JsonConvert.SerializeObject(data, Newtonsoft.Json.Formatting.Indented);
+        await File.WriteAllTextAsync(path, json);
     }
 
     private static async Task SaveLocalPlaylistCache()
     {
         // Re-save the updated playlist cache to include any newly created playlists
         Console.WriteLine("Updating local JSON cache of playlists");
-        string finalJson = JsonConvert.SerializeObject(playlists, Newtonsoft.Json.Formatting.Indented);
-        await File.WriteAllTextAsync(PlaylistsCachePath, finalJson);
+        await SaveCache(PlaylistsCachePath, playlists);
     }
 
     private static async Task EmptyPlaylists(SpotifyClient spotify)
@@ -273,26 +320,29 @@ public class Program
         if (File.Exists(PlaylistsCachePath))
         {
             Console.WriteLine("Loading playlists from local JSON cache...");
-            string json = await File.ReadAllTextAsync(PlaylistsCachePath);
-            playlists = JsonConvert.DeserializeObject<List<FullPlaylist>>(json) ?? new List<FullPlaylist>();
-            Console.WriteLine($"Loaded {playlists.Count} managed playlists from cache.");
+            playlists = await LoadCache<List<FullPlaylist>>(PlaylistsCachePath);
+            Console.WriteLine($"Loaded {playlists!.Count} managed playlists from cache.");
         }
         else
         {
             // First page
             var playlistPage = await spotify.Playlists.CurrentUsers().ConfigureAwait(false);
+            int totalPlaylists = playlistPage.Total ?? 0;
+            int playlistsCounter = 0;
             await foreach (var playlist in spotify.Paginate(playlistPage))
             {
+                float percentProgress = float.Round(playlistsCounter / (float)totalPlaylists * 100, 1);
                 if (playlist.Name != null && playlist.Name.StartsWith(playlistPrefix, StringComparison.OrdinalIgnoreCase))
                 {
-                    Console.WriteLine($"Found managed playlist - {playlist.Name}");
-                    playlists.Add(playlist);
+                    Console.WriteLine($"{percentProgress}% Found managed playlist - {playlist.Name}");
+                    playlists!.Add(playlist);
                 }
                 else
                 {
-                    Console.WriteLine($"Skipped playlist - {playlist.Name}");
+                    Console.WriteLine($"{percentProgress}% Skipped playlist - {playlist.Name}");
                 }
                 await Task.Delay(DelayOperationsMS);
+                playlistsCounter++;
             }
             await SaveLocalPlaylistCache();
         }
