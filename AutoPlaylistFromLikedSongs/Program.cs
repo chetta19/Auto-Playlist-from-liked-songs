@@ -35,7 +35,7 @@ public class Program
 
     private static void Exiting() => Console.CursorVisible = true;
 
-    private const int DelayOperationsMS = 5000;
+    private const int DelayOperationsMS = 2500;
 
     public static async Task Main()
     {
@@ -66,9 +66,9 @@ public class Program
         var config = SpotifyClientConfig
               .CreateDefault()
               .WithAuthenticator(authenticator)
-              .WithRetryHandler(new SimpleRetryHandler() { RetryAfter = TimeSpan.FromMilliseconds(DelayOperationsMS), RetryTimes = 10, TooManyRequestsConsumesARetry = true })
+              .WithRetryHandler(new SimpleRetryHandler() { RetryAfter = TimeSpan.FromMilliseconds(DelayOperationsMS), RetryTimes = 10, TooManyRequestsConsumesARetry = true });
         //.WithDefaultPaginator(paginator);
-        .WithHTTPLogger(new SimpleConsoleHTTPLoggerLonger());
+        //.WithHTTPLogger(new SimpleConsoleHTTPLoggerLonger());
 
         var spotify = new SpotifyClient(config);
 
