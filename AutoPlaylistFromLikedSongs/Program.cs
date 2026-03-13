@@ -76,21 +76,8 @@ public class Program
         Console.WriteLine($"Welcome {me.DisplayName} ({me.Id}), you're authenticated!");
 
         playlists = new List<FullPlaylist>();
-        await GetPlaylists(spotify, playlists).ConfigureAwait(false);
-
-
-        //empting managed playlists
-        int playlistCounter = 0;
-        foreach (var playlist in playlists)
-        {
-            playlistCounter++;
-            if (playlist.Items!.Total > 0)
-            {
-                Console.WriteLine($"{float.Round(playlistCounter / (float)playlists.Count * 100, 0)}% - Clearing playlist - {playlist.Name}");
-                await spotify.Playlists.ReplacePlaylistItems(playlist.Id!, new PlaylistReplaceItemsRequest(new List<string>()));
-                await Task.Delay(DelayOperationsMS);
-            }
-        }
+        await GetPlaylists(spotify).ConfigureAwait(false);
+        await EmptyPlaylists(spotify);
 
         var playListAddItemCaches = new Dictionary<string, List<string>>();
 
@@ -204,6 +191,7 @@ public class Program
                     });
                     await Task.Delay(DelayOperationsMS);
                     playlists.Add(newPlaylist);
+                    await SaveLocalPlaylistCache();
                 }
                 var playlist = playlists.Where(pl => pl.Name == (likedPlaylistName)).First();
 
@@ -251,15 +239,36 @@ public class Program
             await Task.Delay(DelayOperationsMS);
         }
 
-        // Re-save the updated playlist cache to include any newly created playlists
-        Console.WriteLine("Updating local JSON cache with final playlist states...");
-        string finalJson = JsonConvert.SerializeObject(playlists, Newtonsoft.Json.Formatting.Indented);
-        await File.WriteAllTextAsync(PlaylistsCachePath, finalJson);
+        await SaveLocalPlaylistCache();
 
         Console.WriteLine("Done!");
     }
 
-    private static async Task GetPlaylists(SpotifyClient spotify, IList<FullPlaylist> playlists)
+    private static async Task SaveLocalPlaylistCache()
+    {
+        // Re-save the updated playlist cache to include any newly created playlists
+        Console.WriteLine("Updating local JSON cache of playlists");
+        string finalJson = JsonConvert.SerializeObject(playlists, Newtonsoft.Json.Formatting.Indented);
+        await File.WriteAllTextAsync(PlaylistsCachePath, finalJson);
+    }
+
+    private static async Task EmptyPlaylists(SpotifyClient spotify)
+    {
+        //emptying managed playlists
+        int playlistCounter = 0;
+        foreach (var playlist in playlists!)
+        {
+            playlistCounter++;
+            if (playlist.Items!.Total > 0)
+            {
+                Console.WriteLine($"{float.Round(playlistCounter / (float)playlists.Count * 100, 0)}% - Clearing playlist - {playlist.Name}");
+                await spotify.Playlists.ReplacePlaylistItems(playlist.Id!, new PlaylistReplaceItemsRequest(new List<string>()));
+                await Task.Delay(DelayOperationsMS);
+            }
+        }
+    }
+
+    private static async Task GetPlaylists(SpotifyClient spotify)
     {
         if (File.Exists(PlaylistsCachePath))
         {
@@ -285,10 +294,7 @@ public class Program
                 }
                 await Task.Delay(DelayOperationsMS);
             }
-            // Save to local JSON file for the next run
-            Console.WriteLine("Saving playlists to local JSON cache...");
-            string jsonToSave = JsonConvert.SerializeObject(playlists, Newtonsoft.Json.Formatting.Indented);
-            await File.WriteAllTextAsync(PlaylistsCachePath, jsonToSave);
+            await SaveLocalPlaylistCache();
         }
     }
 
