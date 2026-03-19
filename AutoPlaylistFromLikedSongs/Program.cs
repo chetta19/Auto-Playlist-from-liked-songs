@@ -25,12 +25,14 @@ public class Program
         public required List<string> TrackUri { get; set; }
     }
 
-
-    private const string CredentialsPath = "credentials.json";
-    private const string PlaylistsCachePath = "playlists_cache.json";
+    private static readonly string DataDirectory = Path.Combine(AppContext.BaseDirectory, "data");
+    private static readonly string CredentialsPath = Path.Combine(DataDirectory, "credentials.json");
+    private static readonly string PlaylistsCachePath = Path.Combine(DataDirectory, "playlists_cache.json");
+    private static readonly string ProgressCachePath = Path.Combine(DataDirectory, "progress_cache.txt");
+    private static readonly string PlayListAddItemCachePath = Path.Combine(DataDirectory, "playlist_add_item_cache.json");
     private static EmbedIOAuthServer? _server;
     private static Spotify? _settings;
-    private static IList<FullPlaylist>? _playlists;
+    private static IList<FullPlaylist>? playlists;
     private const string playlistPrefix = "Liked Songs - ";
 
     private static void Exiting() => Console.CursorVisible = true;
@@ -39,6 +41,11 @@ public class Program
 
     public static async Task Main()
     {
+        if (!Directory.Exists(DataDirectory))
+        {
+            Directory.CreateDirectory(DataDirectory);
+            Console.WriteLine($"Created data directory at: {DataDirectory}");
+        }
         IConfiguration appConfig = new ConfigurationBuilder()
                                                 .AddJsonFile("appsettings.json")
                                                 .Build();
@@ -75,53 +82,15 @@ public class Program
         var me = await spotify.UserProfile.Current();
         Console.WriteLine($"Welcome {me.DisplayName} ({me.Id}), you're authenticated!");
 
-        _playlists = new List<FullPlaylist>();
+        int savedOffset = await LoadOffsetFromFile(); ;
 
-        if (File.Exists(PlaylistsCachePath))
-        {
-            Console.WriteLine("Loading playlists from local JSON cache...");
-            string json = await File.ReadAllTextAsync(PlaylistsCachePath);
-            _playlists = JsonConvert.DeserializeObject<List<FullPlaylist>>(json) ?? new List<FullPlaylist>();
-            Console.WriteLine($"Loaded {_playlists.Count} managed playlists from cache.");
-        }
-        else
-        {
-            // First page
-            var playlistPage = await spotify.Playlists.CurrentUsers().ConfigureAwait(false);
-            await foreach (var playlist in spotify.Paginate(playlistPage))
-            {
-                if (playlist.Name != null && playlist.Name.StartsWith(playlistPrefix, StringComparison.OrdinalIgnoreCase))
-                {
-                    Console.WriteLine($"Found managed playlist - {playlist.Name}");
-                    _playlists.Add(playlist);
-                }
-                else
-                {
-                    Console.WriteLine($"Skipped playlist - {playlist.Name}");
-                }
-                await Task.Delay(DelayOperationsMS);
-            }
-            // Save to local JSON file for the next run
-            Console.WriteLine("Saving playlists to local JSON cache...");
-            string jsonToSave = JsonConvert.SerializeObject(_playlists, Newtonsoft.Json.Formatting.Indented);
-            await File.WriteAllTextAsync(PlaylistsCachePath, jsonToSave);
-        }
+        playlists = new List<FullPlaylist>();
+        await GetPlaylists(spotify).ConfigureAwait(false);
+        if (savedOffset == 0)
+            await EmptyPlaylists(spotify);
 
-
-        //empting managed playlists
-        int playlistCounter = 0;
-        foreach (var playlist in _playlists)
-        {
-            playlistCounter++;
-            if (playlist.Items!.Total > 0)
-            {
-                Console.WriteLine($"{float.Round(playlistCounter / (float)_playlists.Count * 100, 0)}% - Clearing playlist - {playlist.Name}");
-                await spotify.Playlists.ReplacePlaylistItems(playlist.Id!, new PlaylistReplaceItemsRequest(new List<string>()));
-                await Task.Delay(DelayOperationsMS);
-            }
-        }
-
-        var playListAddItemCaches = new Dictionary<string, List<string>>();
+        var playListAddItemCaches = await LoadCache<Dictionary<string, List<string>>>(PlayListAddItemCachePath)
+                            ?? new Dictionary<string, List<string>>();
 
         var artistCaches = new Dictionary<string, FullArtist>();
         var artistLikedTrackUri = new Dictionary<string, List<string>>();
@@ -138,8 +107,9 @@ public class Program
         var likedAlbumUri = new List<string>();
         var likedTrackUri = new List<string>();
 
-        var page = await spotify.Library.GetTracks(new LibraryTracksRequest() { Limit = 40, Offset = 0 });
-        int counter = 0;
+
+        var page = await spotify.Library.GetTracks(new LibraryTracksRequest() { Limit = 40, Offset = savedOffset });
+        int counter = savedOffset;
         int totalLikedSongs = page.Total ?? 0;
 
         await foreach (var likedSong in spotify.Paginate(page))
@@ -224,7 +194,7 @@ public class Program
 
             foreach (var likedPlaylistName in likedPlaylistNamesToAddSongTo)
             {
-                if (_playlists.Where(pl => pl.Name == (likedPlaylistName)).Count() == 0)
+                if (playlists.Where(pl => pl.Name == (likedPlaylistName)).Count() == 0)
                 {
                     Console.WriteLine($"Creating new playlist {likedPlaylistName}");
                     var newPlaylist = await spotify.Playlists.Create(new PlaylistCreateRequest(likedPlaylistName)
@@ -232,9 +202,10 @@ public class Program
                         Public = false,
                     });
                     await Task.Delay(DelayOperationsMS);
-                    _playlists.Add(newPlaylist);
+                    playlists.Add(newPlaylist);
+                    await SaveLocalPlaylistCache();
                 }
-                var playlist = _playlists.Where(pl => pl.Name == (likedPlaylistName)).First();
+                var playlist = playlists.Where(pl => pl.Name == (likedPlaylistName)).First();
 
                 if (!playListAddItemCaches.ContainsKey(playlist.Id!))
                 {
@@ -253,6 +224,8 @@ public class Program
                 }
             }
             counter++;
+            await File.WriteAllTextAsync(ProgressCachePath, counter.ToString());
+            await SaveCache(PlayListAddItemCachePath, playListAddItemCaches);
         }
 
         foreach (var playListAddItemCache in playListAddItemCaches)
@@ -273,19 +246,106 @@ public class Program
 
         }
 
-        foreach (var playlist in _playlists.Where(pl => pl.Name!.StartsWith(playlistPrefix)))
+        foreach (var playlist in playlists.Where(pl => pl.Name!.StartsWith(playlistPrefix)))
         {
             Console.WriteLine($"Updating playlist description and setting it public {playlist.Name}");
             await spotify.Playlists.ChangeDetails(playlist.Id!, new PlaylistChangeDetailsRequest() { Public = true, Description = $"Updated on {DateTime.Now.ToString()} using https://github.com/chetta19/Auto-Playlist-from-liked-songs" });
             await Task.Delay(DelayOperationsMS);
         }
 
-        // Re-save the updated playlist cache to include any newly created playlists
-        Console.WriteLine("Updating local JSON cache with final playlist states...");
-        string finalJson = JsonConvert.SerializeObject(_playlists, Newtonsoft.Json.Formatting.Indented);
-        await File.WriteAllTextAsync(PlaylistsCachePath, finalJson);
+        await SaveLocalPlaylistCache();
+        if (File.Exists(ProgressCachePath)) File.Delete(ProgressCachePath);
+        if (File.Exists(PlayListAddItemCachePath)) File.Delete(PlayListAddItemCachePath);
 
         Console.WriteLine("Done!");
+    }
+
+    private static async Task<int> LoadOffsetFromFile()
+    {
+        int savedOffset = 0;
+        if (File.Exists(ProgressCachePath))
+        {
+            if (int.TryParse(await File.ReadAllTextAsync(ProgressCachePath), out int parsedOffset))
+            {
+                savedOffset = parsedOffset;
+                Console.WriteLine($"Found saved progress. Resuming from offset: {savedOffset}");
+            }
+        }
+
+        return savedOffset;
+    }
+
+
+    private static async Task<T?> LoadCache<T>(string path)
+    {
+        if (File.Exists(path))
+        {
+            string json = await File.ReadAllTextAsync(path);
+            return JsonConvert.DeserializeObject<T>(json);
+        }
+        return default;
+    }
+
+    private static async Task SaveCache<T>(string path, T data)
+    {
+        string json = JsonConvert.SerializeObject(data, Newtonsoft.Json.Formatting.Indented);
+        await File.WriteAllTextAsync(path, json);
+    }
+
+    private static async Task SaveLocalPlaylistCache()
+    {
+        // Re-save the updated playlist cache to include any newly created playlists
+        Console.WriteLine("Updating local JSON cache of playlists");
+        await SaveCache(PlaylistsCachePath, playlists);
+    }
+
+    private static async Task EmptyPlaylists(SpotifyClient spotify)
+    {
+        //emptying managed playlists
+        int playlistCounter = 0;
+        foreach (var playlist in playlists!)
+        {
+            playlistCounter++;
+            if (playlist.Items!.Total > 0)
+            {
+                Console.WriteLine($"{float.Round(playlistCounter / (float)playlists.Count * 100, 0)}% - Clearing playlist - {playlist.Name}");
+                await spotify.Playlists.ReplacePlaylistItems(playlist.Id!, new PlaylistReplaceItemsRequest(new List<string>()));
+                await Task.Delay(DelayOperationsMS);
+            }
+        }
+    }
+
+    private static async Task GetPlaylists(SpotifyClient spotify)
+    {
+        if (File.Exists(PlaylistsCachePath))
+        {
+            Console.WriteLine("Loading playlists from local JSON cache...");
+            playlists = await LoadCache<List<FullPlaylist>>(PlaylistsCachePath);
+            Console.WriteLine($"Loaded {playlists!.Count} managed playlists from cache.");
+        }
+        else
+        {
+            // First page
+            var playlistPage = await spotify.Playlists.CurrentUsers().ConfigureAwait(false);
+            int totalPlaylists = playlistPage.Total ?? 0;
+            int playlistsCounter = 0;
+            await foreach (var playlist in spotify.Paginate(playlistPage))
+            {
+                float percentProgress = float.Round(playlistsCounter / (float)totalPlaylists * 100, 1);
+                if (playlist.Name != null && playlist.Name.StartsWith(playlistPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.WriteLine($"{percentProgress}% Found managed playlist - {playlist.Name}");
+                    playlists!.Add(playlist);
+                }
+                else
+                {
+                    Console.WriteLine($"{percentProgress}% Skipped playlist - {playlist.Name}");
+                }
+                await Task.Delay(DelayOperationsMS);
+                playlistsCounter++;
+            }
+            await SaveLocalPlaylistCache();
+        }
     }
 
     private static async Task CreatePlaylistArtistLikedSongs(SpotifyClient spotify, Dictionary<string, List<string>> artistLikedTrackUri)
@@ -345,31 +405,31 @@ public class Program
 
     private static async Task<FullPlaylist> CreateGetPlaylist(SpotifyClient spotify, PrivateUser me, string playlistToAddTo)
     {
-        if (_playlists!.Where(pl => pl.Name == (playlistToAddTo)).Count() == 0)
+        if (playlists!.Where(pl => pl.Name == (playlistToAddTo)).Count() == 0)
         {
             Console.WriteLine($"Creating new playlist {playlistToAddTo}");
             var newPlaylist = await spotify.Playlists.Create(new PlaylistCreateRequest(playlistToAddTo)
             {
                 Public = false,
             });
-            _playlists!.Add(newPlaylist);
+            playlists!.Add(newPlaylist);
         }
-        var playlist = _playlists!.Where(pl => pl.Name == (playlistToAddTo)).First();
+        var playlist = playlists!.Where(pl => pl.Name == (playlistToAddTo)).First();
         return playlist;
     }
 
     private static async void AddSongToPlaylist(string trackUri, string playlistname, Dictionary<string, List<string>> playListAddItemCaches, SpotifyClient spotify)
     {
-        if (_playlists!.Where(pl => pl.Name == (playlistname)).Count() == 0)
+        if (playlists!.Where(pl => pl.Name == (playlistname)).Count() == 0)
         {
             Console.WriteLine($"Creating new playlist {playlistname}");
             var newPlaylist = await spotify.Playlists.Create(new PlaylistCreateRequest(playlistname)
             {
                 Public = false,
             });
-            _playlists!.Add(newPlaylist);
+            playlists!.Add(newPlaylist);
         }
-        var playlist = _playlists!.Where(pl => pl.Name == (playlistname)).First();
+        var playlist = playlists!.Where(pl => pl.Name == (playlistname)).First();
 
         if (!playListAddItemCaches.ContainsKey(playlist.Id!))
         {
